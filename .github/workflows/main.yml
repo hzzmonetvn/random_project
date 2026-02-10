@@ -1,0 +1,251 @@
+name: Build super
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'Super.zip url'
+        required: true
+      mod_url:
+        description: 'Kaorios toolbox module url (put ur patched framework)'
+        required: true
+      super_size:
+        description: 'Super Size (Bytes) - Ex: 9126805504'
+        required: true
+      cluster_group:
+        description: 'Cluster Group Name'
+        required: true
+        default: 'qti_dynamic_partitions'
+      partition_type:
+        description: 'Partition Type'
+        required: true
+        default: 'virtual_ab'
+        type: choice
+        options:
+        - a_only
+        - ab
+        - virtual_ab
+      fs_type:
+        description: 'Filesystem (System Partition)'
+        required: true
+        default: 'erofs'
+        type: choice
+        options:
+        - erofs
+        - ext4
+      compression:
+        description: 'Output Compression'
+        required: true
+        default: 'raw'
+        type: choice
+        options:
+        - raw
+        - sparse
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Maximize build space
+        run: |
+          sudo swapoff -a || true
+          sudo rm -f /swapfile || true
+          docker images -q | xargs -r docker rmi -f
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /opt/hostedtoolcache \
+            /usr/lib/jvm \
+            /opt/google
+          sudo apt-get update
+          sudo apt-get -y purge \
+            'azure-cli' \
+            'ghc-*' \
+            'zulu*' \
+            'hhvm' \
+            'llvm*' \
+            'firefox' \
+            'google-cloud-sdk' \
+            'dotnet*' \
+            'powershell' \
+            'mysql-*' \
+            'php-*' \
+            'openjdk-*' || true
+          sudo apt-get -y autoremove --purge || true
+          sudo apt-get -y clean || true
+          df -h
+          
+      - name: Setup Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip wget unzip zip e2fsprogs simg2img android-sdk-libsparse-utils
+          pip3 install gdown
+          mkdir -p tools
+          wget -qO tools.zip https://github.com/phhusson/sas-creator/releases/download/v1.0/lp_tools.zip
+          unzip tools.zip -d tools
+          chmod +x tools/*
+          sudo cp tools/* /usr/local/bin/
+          sudo apt-get install -y erofs-utils
+
+      - name: 2. Download Files
+        run: |
+          download_file() {
+            local url="$1"
+            local output="$2"
+            if [[ "$url" == *"drive.google.com"* ]]; then
+              echo "GG Drive detected for $output..."
+              gdown "$url" -O "$output"
+            else
+              echo "Direct link detected for $output..."
+              wget -q "$url" -O "$output"
+            fi
+          }
+
+          download_file "${{ inputs.rom_url }}" "super.zip"
+          download_file "${{ inputs.mod_url }}" "mod.zip"
+
+      - name: 3. Unpack Super & Mod
+        run: |
+          echo "Unpacking super.zip..."
+          unzip -q super.zip
+          
+          if [ ! -f "super.img" ]; then
+            mv *.img super.img || echo "No img file found!"
+          fi
+
+          # Convert sparse -> raw
+          if simg2img super.img super.raw 2>/dev/null; then
+            echo "Converted sparse image to raw."
+            mv super.raw super.img
+          else
+            echo "Image is already raw."
+          fi
+
+          echo "Unpacking super.img..."
+          mkdir -p extracted_super
+          lpunpack super.img extracted_super
+          
+          echo "Unpacking mod.zip..."
+          mkdir -p mod_temp
+          unzip -q mod.zip -d mod_temp
+
+      - name: 4. Process System & Inject Mod
+        run: |
+          cd extracted_super
+          SYS_IMG=$(find . -name "system*.img" | head -n 1)
+          echo "Processing target partition: $SYS_IMG"
+          
+          mkdir -p system_work
+          
+          if [[ "$(file $SYS_IMG)" == *"EROFS"* ]]; then
+             extract.erofs -i $SYS_IMG -x -o system_work
+          else
+             mkdir -p system_mnt
+             sudo mount -o loop,ro $SYS_IMG system_mnt
+             sudo cp -a system_mnt/* system_work/
+             sudo umount system_mnt
+             rm -rf system_mnt
+          fi
+
+          echo "Injecting mods..."
+          if [ -d "../mod_temp/system" ]; then
+            sudo cp -rf ../mod_temp/system/* system_work/
+          else
+            sudo cp -rf ../mod_temp/* system_work/
+          fi
+          
+          PROP_FILE=$(find system_work -name "build.prop" | head -n 1)
+          
+          if [ -f "$PROP_FILE" ]; then
+            echo "Found build.prop at $PROP_FILE"
+            sudo bash -c "cat >> $PROP_FILE" <<EOF
+          persist.sys.kaorios=kousei
+          ro.control_privapp_permissions=
+          ro.crypto.state=encrypted
+          ro.boot.flash.locked=1
+          ro.boot.veritymode=enforcing
+          ro.boot.vbmeta.device_state=locked
+          ro.boot.warranty_bit=0
+          ro.boot.verifiedbootstate=green
+          sys.oem_unlock_allowed=0
+          EOF
+          fi
+
+          echo "Setting permissions..."
+          sudo chown -R 0:0 system_work
+          sudo find system_work -type d -exec chmod 755 {} \;
+          sudo find system_work -type f -exec chmod 644 {} \;
+          echo "Repacking system partition..."
+          rm -f $SYS_IMG
+          
+          if [[ "${{ inputs.fs_type }}" == "erofs" ]]; then
+            mkfs.erofs -zlz4hc $SYS_IMG system_work
+          else
+            SIZE=$(du -sb system_work | cut -f1)
+            SIZE=$((SIZE + 67108864))
+            mke2fs -L system -t ext4 -d system_work $SYS_IMG ${SIZE}b
+          fi
+          
+          sudo rm -rf system_work
+
+      - name: 5. Repack Super
+        run: |
+          cd extracted_super
+          SUPER_SIZE=${{ inputs.super_size }}
+          GROUP_NAME="${{ inputs.cluster_group }}"
+          TYPE="${{ inputs.partition_type }}"
+          if [[ "$TYPE" == "a_only" ]]; then
+             SLOT_ARGS="--metadata-slots 0"
+             VAB_FLAG=""
+             GROUPS="--group $GROUP_NAME:$SUPER_SIZE"
+          elif [[ "$TYPE" == "ab" ]]; then
+             SLOT_ARGS="--metadata-slots 2"
+             VAB_FLAG=""
+             GROUPS="--group ${GROUP_NAME}_a:$SUPER_SIZE --group ${GROUP_NAME}_b:$SUPER_SIZE"
+          else 
+             SLOT_ARGS="--metadata-slots 3" 
+             VAB_FLAG="--virtual-ab"
+             GROUPS="--group ${GROUP_NAME}_a:$SUPER_SIZE --group ${GROUP_NAME}_b:$SUPER_SIZE"
+          fi
+          
+          CMD="lpmake --metadata-size 65536 --super-name super $SLOT_ARGS $VAB_FLAG --device super:$SUPER_SIZE $GROUPS"
+          
+          for img in *.img; do
+            base_name=$(basename "$img" .img | sed -E 's/(_a|_b)$//')
+            if [[ "$img" == *"_b.img" ]]; then continue; fi     
+            size=$(stat -c%s "$img")
+            echo "Adding partition: $base_name ($size bytes)"
+            
+            if [[ "$TYPE" == "a_only" ]]; then
+                CMD="$CMD --partition $base_name:readonly:$size:$GROUP_NAME --image $base_name=$img"
+            else
+                CMD="$CMD --partition ${base_name}_a:readonly:$size:${GROUP_NAME}_a --image ${base_name}_a=$img"
+                CMD="$CMD --partition ${base_name}_b:readonly:0:${GROUP_NAME}_b"
+            fi
+          done
+          
+          # Output Sparse
+          if [[ "${{ inputs.compression }}" == "sparse" ]]; then
+            CMD="$CMD --sparse"
+          fi
+          
+          CMD="$CMD --output ../super_new.img"
+          
+          echo "Executing lpmake..."
+          $CMD
+
+      - name: 6. Upload to Gofile
+        run: |
+          if [ -f "super_new.img" ]; then
+            echo "Uploading super_new.img..."
+            curl -F file=@super_new.img https://store1.gofile.io/uploadFile
+          else
+            echo "Failed to create super_new.img"
+            exit 1
+          fi
+          
