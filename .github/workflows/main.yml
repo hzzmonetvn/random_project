@@ -83,16 +83,17 @@ jobs:
       - name: 1. Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip wget unzip zip e2fsprogs android-sdk-libsparse-utils
+          sudo apt-get install -y python3-pip wget unzip zip e2fsprogs android-sdk-libsparse-utils git        
           pip3 install gdown --break-system-packages
-          
-          mkdir -p tools
-          wget -qO tools.zip https://github.com/phhusson/sas-creator/releases/download/v1.0/lp_tools.zip
-          unzip -q tools.zip -d tools
-          chmod +x tools/*
-          sudo cp tools/* /usr/local/bin/
-        
           sudo apt-get install -y erofs-utils
+          git clone --depth 1 https://github.com/ponces/treble_build_pe tools_source
+          
+          sudo cp tools_source/bin/lpmake /usr/local/bin/
+          sudo cp tools_source/bin/lpunpack /usr/local/bin/
+          
+          sudo chmod +x /usr/local/bin/lpmake
+          sudo chmod +x /usr/local/bin/lpunpack
+          rm -rf tools_source
 
 
       - name: 2. Download Files
