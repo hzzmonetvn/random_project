@@ -80,17 +80,20 @@ jobs:
           sudo apt-get -y clean || true
           df -h
           
-      - name: Setup Environment
+      - name: 1. Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip wget unzip zip e2fsprogs simg2img android-sdk-libsparse-utils
-          pip3 install gdown
+          sudo apt-get install -y python3-pip wget unzip zip e2fsprogs android-sdk-libsparse-utils
+          pip3 install gdown --break-system-packages
+          
           mkdir -p tools
           wget -qO tools.zip https://github.com/phhusson/sas-creator/releases/download/v1.0/lp_tools.zip
-          unzip tools.zip -d tools
+          unzip -q tools.zip -d tools
           chmod +x tools/*
           sudo cp tools/* /usr/local/bin/
+        
           sudo apt-get install -y erofs-utils
+
 
       - name: 2. Download Files
         run: |
