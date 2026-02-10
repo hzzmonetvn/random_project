@@ -83,17 +83,17 @@ jobs:
       - name: 1. Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip wget unzip zip e2fsprogs android-sdk-libsparse-utils git        
+          sudo apt-get install -y python3-pip wget unzip zip e2fsprogs android-sdk-libsparse-utils git
           pip3 install gdown --break-system-packages
           sudo apt-get install -y erofs-utils
-          git clone --depth 1 https://github.com/ponces/treble_build_pe tools_source
-          
-          sudo cp tools_source/bin/lpmake /usr/local/bin/
-          sudo cp tools_source/bin/lpunpack /usr/local/bin/
-          
+          git clone https://github.com/Xiaoxindada/lptools.git
+          sudo cp lptools/linux/lpmake /usr/local/bin/
+          sudo cp lptools/linux/lpunpack /usr/local/bin/
           sudo chmod +x /usr/local/bin/lpmake
           sudo chmod +x /usr/local/bin/lpunpack
-          rm -rf tools_source
+          lpmake --help > /dev/null && echo "lpmake installed successfully" || echo "lpmake failed"
+          rm -rf lptools
+
 
 
       - name: 2. Download Files
