@@ -188,19 +188,6 @@ button {
   pointer-events: none;
 }
 
-.sound-note {
-  position: absolute;
-  top: 2rem;
-  left: 50%;
-  margin: 0;
-  color: rgba(223, 229, 224, 0.34);
-  font-family: var(--mono);
-  font-size: 0.5rem;
-  letter-spacing: 0.32em;
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
-
 .memory-dialog {
   position: fixed;
   inset: 0;
@@ -329,7 +316,7 @@ button {
   }
 
   .title-lockup {
-    top: 65%;
+    top: 64.5%;
     width: 100%;
   }
 
@@ -347,12 +334,6 @@ button {
     margin-top: 1.6rem;
   }
 
-  .sound-note {
-    top: 1.35rem;
-    font-size: 0.43rem;
-    letter-spacing: 0.24em;
-  }
-
   .memory-dialog {
     padding: 2rem 1.35rem;
   }
@@ -360,6 +341,31 @@ button {
   .dialog-eyebrow {
     font-size: 0.48rem;
     letter-spacing: 0.22em;
+  }
+}
+
+@media (min-aspect-ratio: 4/3) {
+  .title-lockup {
+    top: 64.5%;
+    width: min(92vw, 49vh);
+  }
+
+  .day-count {
+    font-size: clamp(4.3rem, 12vh, 8rem);
+  }
+
+  .together {
+    font-size: clamp(1.3rem, 3.3vh, 2.05rem);
+  }
+
+  .date-line {
+    gap: 0.72em;
+    font-size: clamp(0.47rem, 0.72vh, 0.68rem);
+    letter-spacing: 0.19em;
+  }
+
+  .enter-button {
+    margin-top: clamp(1rem, 3vh, 2rem);
   }
 }
 

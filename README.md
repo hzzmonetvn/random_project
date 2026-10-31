@@ -1,6 +1,6 @@
 # Days Together
 
-A small anniversary landing page built with plain HTML, CSS, and JavaScript. The observatory, orbital lines, stars, glass fragments, and code-like texture are drawn in Canvas; no image or video assets are needed.
+A responsive anniversary landing page built with plain HTML, CSS, and JavaScript. The reference clip supplies one compressed architectural texture; Canvas adds the moving code field, light sweeps, grain, and responsive atmosphere. The counter and Enter interaction are live page elements.
 
 ## Deploy on Vercel
 

@@ -1,5 +1,7 @@
 // Change this date to personalize the live day counter.
 const START_DATE = "2026-02-21";
+const POSTER = new Image();
+POSTER.src = "./assets/reference-texture.webp";
 
 const canvas = document.querySelector("#architecture");
 const ctx = canvas.getContext("2d", { alpha: false });
@@ -12,13 +14,14 @@ let height = 0;
 let pixelRatio = 1;
 let pointer = { x: 0, y: 0 };
 let stars = [];
-let shards = [];
 let glyphRows = [];
+let lightLeaks = [];
+let sideBackdrop = document.createElement("canvas");
+let sideContext = sideBackdrop.getContext("2d");
 let animationFrame = 0;
 let previousFrame = 0;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-const mix = (a, b, amount) => a + (b - a) * amount;
 
 function randomGenerator(seed) {
   let state = seed % 2147483647;
@@ -40,43 +43,53 @@ function setCounter() {
   dateNode.textContent = START_DATE.replaceAll("-", ".");
 }
 
+function prepareAtmosphere() {
+  if (!POSTER.complete || !POSTER.naturalWidth || !sideContext) return;
+  const bufferWidth = Math.max(1, Math.round(width * 0.5));
+  const bufferHeight = Math.max(1, Math.round(height * 0.5));
+  sideBackdrop.width = bufferWidth;
+  sideBackdrop.height = bufferHeight;
+  const scale = Math.max(bufferWidth / POSTER.width, bufferHeight / POSTER.height);
+  const drawWidth = POSTER.width * scale;
+  const drawHeight = POSTER.height * scale;
+  sideContext.clearRect(0, 0, bufferWidth, bufferHeight);
+  sideContext.filter = `blur(${Math.max(14, height * 0.022)}px) brightness(0.34) saturate(0.48)`;
+  sideContext.drawImage(POSTER, (bufferWidth - drawWidth) / 2, (bufferHeight - drawHeight) / 2, drawWidth, drawHeight);
+  sideContext.filter = "none";
+}
+
 function makeSceneElements() {
-  const seed = Math.round(width * 17 + height * 29);
-  const random = randomGenerator(seed || 1);
-  const starCount = Math.round(clamp((width * height) / 7800, 90, 210));
-  stars = Array.from({ length: starCount }, () => ({
+  const random = randomGenerator(Math.round(width * 19 + height * 31) || 1);
+  stars = Array.from({ length: Math.round(clamp(width * height / 10000, 80, 180)) }, () => ({
     x: random(),
-    y: random() * 0.72,
+    y: random() * 0.58,
     radius: random() * 1.15 + 0.2,
     phase: random() * Math.PI * 2,
-    alpha: random() * 0.55 + 0.12,
+    alpha: 0.1 + random() * 0.44,
   }));
 
-  const shardCount = Math.round(clamp(width / 35, 13, 34));
-  shards = Array.from({ length: shardCount }, (_, index) => ({
-    x: random() * width,
-    y: height * (0.34 + random() * 0.29),
-    size: 16 + random() * Math.min(108, width * 0.12),
-    angle: random() * Math.PI * 2,
-    spin: (random() - 0.5) * 0.00018,
-    alpha: 0.12 + random() * 0.2,
-    hue: [178, 203, 342, 28][index % 4],
-  }));
-
-  const symbols = "0123456789 /\\[]{}<>:;=+−·░▒▓ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  const columns = Math.round(width / 36);
+  const glyphs = "0123456789 /\\[]{}<>:;=+−·░▒▓ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   glyphRows = [];
-  for (let column = 0; column < columns; column += 1) {
-    let y = height * (0.48 + random() * 0.12);
-    const x = column * 36 + random() * 22;
-    for (let row = 0; y < height + 30; row += 1) {
-      const length = 4 + Math.floor(random() * 16);
+  for (let x = -12; x < width + 20; x += 20 + random() * 18) {
+    let y = height * (0.49 + random() * 0.1);
+    const drift = 0.018 + random() * 0.07;
+    while (y < height + 25) {
+      const length = 3 + Math.floor(random() * 11);
       let text = "";
-      for (let i = 0; i < length; i += 1) text += symbols[Math.floor(random() * symbols.length)];
-      glyphRows.push({ x, y, text, alpha: 0.035 + random() * 0.085, drift: random() * 0.08 });
-      y += 13 + random() * 10;
+      for (let i = 0; i < length; i += 1) text += glyphs[Math.floor(random() * glyphs.length)];
+      glyphRows.push({ x: x + random() * 8, y, text, alpha: 0.035 + random() * 0.095, drift, phase: random() * 8 });
+      y += 15 + random() * 20;
     }
   }
+
+  lightLeaks = Array.from({ length: 16 }, () => ({
+    x: random(),
+    y: 0.39 + random() * 0.22,
+    width: 18 + random() * 95,
+    phase: random() * Math.PI * 2,
+    hue: [184, 202, 326, 39][Math.floor(random() * 4)],
+    alpha: 0.04 + random() * 0.12,
+  }));
 }
 
 function resize() {
@@ -89,29 +102,97 @@ function resize() {
   canvas.style.height = `${height}px`;
   ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   makeSceneElements();
+  prepareAtmosphere();
   draw(0);
 }
 
-function drawAtmosphere(time) {
-  const background = ctx.createLinearGradient(0, 0, 0, height);
-  background.addColorStop(0, "#11181b");
-  background.addColorStop(0.28, "#0a1012");
-  background.addColorStop(0.56, "#080c0e");
-  background.addColorStop(1, "#020304");
-  ctx.fillStyle = background;
+function drawBackdrop(time) {
+  const base = ctx.createLinearGradient(0, 0, 0, height);
+  base.addColorStop(0, "#252d30");
+  base.addColorStop(0.34, "#151b1e");
+  base.addColorStop(0.64, "#080b0d");
+  base.addColorStop(1, "#020304");
+  ctx.fillStyle = base;
   ctx.fillRect(0, 0, width, height);
 
-  const halo = ctx.createRadialGradient(width * 0.5, height * 0.22, 2, width * 0.5, height * 0.22, width * 0.74);
-  halo.addColorStop(0, "rgba(150, 177, 180, 0.15)");
-  halo.addColorStop(0.48, "rgba(54, 76, 81, 0.09)");
-  halo.addColorStop(1, "rgba(3, 5, 6, 0)");
-  ctx.fillStyle = halo;
-  ctx.fillRect(0, 0, width, height * 0.74);
+  if (sideBackdrop.width) ctx.drawImage(sideBackdrop, 0, 0, width, height);
+
+  if (POSTER.complete && POSTER.naturalWidth) {
+    const imageScale = height / POSTER.height;
+    const imageWidth = POSTER.width * imageScale;
+    const floatX = reducedMotion.matches ? 0 : Math.sin(time * 0.11) * 2.2 + pointer.x * 2.5;
+    const floatY = reducedMotion.matches ? 0 : Math.sin(time * 0.08) * 1.5 + pointer.y * 1.8;
+    ctx.save();
+    ctx.globalAlpha = 0.98;
+    ctx.drawImage(POSTER, (width - imageWidth) / 2 + floatX, floatY, imageWidth, height);
+    ctx.restore();
+  }
+
+  // Fade the lettering baked into the reference frame before the live HTML title.
+  const fade = ctx.createLinearGradient(0, height * 0.5, 0, height * 0.73);
+  fade.addColorStop(0, "rgba(2, 4, 5, 0)");
+  fade.addColorStop(0.26, "rgba(2, 4, 5, 0.16)");
+  fade.addColorStop(0.61, "rgba(2, 4, 5, 0.96)");
+  fade.addColorStop(1, "rgba(2, 4, 5, 0.99)");
+  ctx.fillStyle = fade;
+  ctx.fillRect(0, height * 0.5, width, height * 0.5);
+}
+
+function drawCodeField(time) {
+  ctx.save();
+  for (let i = 0; i < glyphRows.length; i += 1) {
+    const glyph = glyphRows[i];
+    const drift = reducedMotion.matches ? 0 : Math.sin(time * 0.28 + glyph.phase) * glyph.drift;
+    const y = glyph.y + drift;
+    const fontSize = Math.max(5, Math.min(8.5, width / 115));
+    ctx.font = `${fontSize}px "Space Mono", "Courier New", monospace`;
+    ctx.fillStyle = `rgba(197, 206, 201, ${glyph.alpha})`;
+    ctx.fillText(glyph.text, glyph.x, y);
+  }
+  ctx.restore();
+}
+
+function drawGlints(time) {
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  for (let i = 0; i < lightLeaks.length; i += 1) {
+    const leak = lightLeaks[i];
+    const flicker = 0.55 + Math.sin(time * 1.2 + leak.phase) * 0.45;
+    const x = leak.x * width + (reducedMotion.matches ? 0 : Math.sin(time * 0.12 + leak.phase) * 8);
+    const y = leak.y * height;
+    const line = ctx.createLinearGradient(x - leak.width / 2, y, x + leak.width / 2, y);
+    line.addColorStop(0, `hsla(${leak.hue}, 88%, 72%, 0)`);
+    line.addColorStop(0.5, `hsla(${leak.hue}, 88%, 77%, ${leak.alpha * flicker})`);
+    line.addColorStop(1, `hsla(${(leak.hue + 65) % 360}, 88%, 72%, 0)`);
+    ctx.fillStyle = line;
+    ctx.fillRect(x - leak.width / 2, y, leak.width, 1 + flicker * 2);
+  }
+
+  // Fine scan lines and occasional RGB split echo the chromatic edges in the clip.
+  const scanY = height * (0.43 + ((time * 0.025) % 0.17));
+  const scan = ctx.createLinearGradient(0, scanY - 32, 0, scanY + 32);
+  scan.addColorStop(0, "rgba(0, 0, 0, 0)");
+  scan.addColorStop(0.48, "rgba(191, 218, 215, 0.035)");
+  scan.addColorStop(0.5, "rgba(239, 249, 242, 0.13)");
+  scan.addColorStop(0.53, "rgba(210, 76, 139, 0.045)");
+  scan.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = scan;
+  ctx.fillRect(0, scanY - 32, width, 64);
+  ctx.restore();
+}
+
+function drawAtmosphere(time) {
+  const glow = ctx.createRadialGradient(width * 0.5, height * 0.2, 0, width * 0.5, height * 0.2, width * 0.78);
+  glow.addColorStop(0, "rgba(196, 211, 202, 0.08)");
+  glow.addColorStop(0.7, "rgba(77, 99, 104, 0.035)");
+  glow.addColorStop(1, "rgba(0, 0, 0, 0.18)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, width, height * 0.78);
 
   for (const star of stars) {
-    const pulse = 0.72 + Math.sin(time * 1.2 + star.phase) * 0.28;
+    const pulse = reducedMotion.matches ? 1 : 0.72 + Math.sin(time * 1.25 + star.phase) * 0.28;
     ctx.globalAlpha = star.alpha * pulse;
-    ctx.fillStyle = star.radius > 0.95 ? "#dbe5e2" : "#9baeb0";
+    ctx.fillStyle = "#d8e3e0";
     ctx.beginPath();
     ctx.arc(star.x * width, star.y * height, star.radius, 0, Math.PI * 2);
     ctx.fill();
@@ -119,227 +200,22 @@ function drawAtmosphere(time) {
   ctx.globalAlpha = 1;
 }
 
-function drawDome(time) {
-  const cx = width * 0.5 + pointer.x * 13;
-  const cy = height * 0.255 + pointer.y * 5;
-  const rx = width * 0.62;
-  const ry = Math.min(height * 0.225, width * 0.43);
-  const blue = "rgba(193, 213, 211, ";
-
-  ctx.save();
-  ctx.lineWidth = 0.7;
-  ctx.strokeStyle = "rgba(122, 165, 173, 0.16)";
-  ctx.beginPath();
-  ctx.ellipse(cx, cy + ry * 0.12, rx * 1.09, ry * 0.52, -0.025, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.ellipse(cx, cy + ry * 0.09, rx * 1.15, ry * 0.31, 0.035, 0, Math.PI * 2);
-  ctx.stroke();
-
-  for (let meridian = 0; meridian < 56; meridian += 1) {
-    const longitude = (meridian / 56) * Math.PI * 2;
-    const depth = Math.cos(longitude);
-    const alpha = depth > 0 ? 0.15 + depth * 0.28 : 0.055;
-    ctx.beginPath();
-    for (let step = 0; step <= 48; step += 1) {
-      const latitude = -Math.PI / 2 + (step / 48) * Math.PI;
-      const x = cx + rx * Math.cos(latitude) * Math.sin(longitude);
-      const y = cy + ry * Math.sin(latitude);
-      if (step === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.lineWidth = meridian % 7 === 0 ? 1.2 : 0.65;
-    ctx.strokeStyle = `${blue}${alpha})`;
-    ctx.stroke();
-  }
-
-  for (let ring = 1; ring <= 18; ring += 1) {
-    const latitude = -1.48 + (ring / 19) * 2.96;
-    const radiusX = rx * Math.cos(latitude);
-    const y = cy + ry * Math.sin(latitude);
-    const radiusY = Math.max(0.7, ry * 0.024 * Math.cos(latitude));
-    const gleam = ring % 4 === 0 ? 0.3 : 0.13;
-    ctx.beginPath();
-    ctx.ellipse(cx, y, radiusX, radiusY, 0, 0, Math.PI * 2);
-    ctx.lineWidth = ring % 4 === 0 ? 1.1 : 0.55;
-    ctx.strokeStyle = `${blue}${gleam})`;
-    ctx.stroke();
-  }
-
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "rgba(222, 232, 227, 0.62)";
-  ctx.shadowColor = "rgba(191, 226, 228, 0.4)";
-  ctx.shadowBlur = 12;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  const irisY = cy - ry * 0.48;
-  for (let ring = 0; ring < 4; ring += 1) {
-    ctx.beginPath();
-    ctx.ellipse(cx, irisY, rx * (0.13 + ring * 0.035), ry * (0.18 + ring * 0.05), 0, 0, Math.PI * 2);
-    ctx.lineWidth = ring === 0 ? 1.3 : 0.75;
-    ctx.strokeStyle = ring === 0 ? "rgba(237, 239, 228, 0.8)" : "rgba(183, 207, 204, 0.36)";
-    ctx.stroke();
-  }
-  for (let spoke = 0; spoke < 24; spoke += 1) {
-    const a = (spoke / 24) * Math.PI * 2;
-    const outerX = cx + Math.cos(a) * rx * 0.27;
-    const outerY = irisY + Math.sin(a) * ry * 0.31;
-    ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(a) * rx * 0.055, irisY + Math.sin(a) * ry * 0.07);
-    ctx.lineTo(outerX, outerY);
-    ctx.lineWidth = spoke % 3 === 0 ? 1 : 0.6;
-    ctx.strokeStyle = `rgba(212, 225, 219, ${spoke % 3 === 0 ? 0.52 : 0.24})`;
-    ctx.stroke();
-  }
-
-  const windowCount = Math.max(11, Math.round(width / 72));
-  const baseY = cy + ry * 0.8;
-  for (let i = 0; i < windowCount; i += 1) {
-    const x = mix(width * 0.08, width * 0.92, i / (windowCount - 1));
-    const edge = Math.abs(x - cx) / (width * 0.42);
-    const top = baseY - height * (0.105 * (1 - edge * 0.5));
-    const w = Math.min(42, width / (windowCount * 1.5));
-    const bottom = baseY + height * 0.065;
-    ctx.beginPath();
-    ctx.moveTo(x - w / 2, bottom);
-    ctx.lineTo(x - w / 2, top + w * 0.45);
-    ctx.quadraticCurveTo(x - w / 2, top, x, top);
-    ctx.quadraticCurveTo(x + w / 2, top, x + w / 2, top + w * 0.45);
-    ctx.lineTo(x + w / 2, bottom);
-    ctx.strokeStyle = "rgba(193, 215, 210, 0.25)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x, top + 4);
-    ctx.lineTo(x, bottom);
-    ctx.strokeStyle = "rgba(187, 211, 207, 0.12)";
-    ctx.stroke();
-  }
-
-  const glint = (time * 0.13) % 1;
-  const glintX = cx + Math.sin(glint * Math.PI * 2) * rx * 0.86;
-  const glintY = cy + ry * Math.sin(glint * Math.PI * 1.8);
-  const glintGradient = ctx.createRadialGradient(glintX, glintY, 0, glintX, glintY, 26);
-  glintGradient.addColorStop(0, "rgba(238, 244, 231, 0.6)");
-  glintGradient.addColorStop(1, "rgba(205, 226, 226, 0)");
-  ctx.fillStyle = glintGradient;
-  ctx.fillRect(glintX - 28, glintY - 28, 56, 56);
-  ctx.restore();
-}
-
-function drawGround(time) {
-  const horizon = height * 0.47;
-  const vanishX = width * 0.5 + pointer.x * 8;
-
-  ctx.save();
-  for (let i = 0; i < 18; i += 1) {
-    const x = (i / 17) * width;
-    const h = 13 + ((i * 19) % 39);
-    ctx.fillStyle = i % 3 === 0 ? "rgba(151, 174, 170, 0.11)" : "rgba(82, 105, 107, 0.13)";
-    ctx.fillRect(x, horizon - h * 0.25, width / 30, h);
-    ctx.strokeStyle = "rgba(178, 198, 192, 0.14)";
-    ctx.lineWidth = 0.65;
-    ctx.strokeRect(x + 2, horizon - h * 0.25 + 2, width / 30 - 4, h - 4);
-  }
-
-  const gridGlow = ctx.createLinearGradient(0, horizon, 0, height);
-  gridGlow.addColorStop(0, "rgba(123, 153, 154, 0.17)");
-  gridGlow.addColorStop(1, "rgba(110, 137, 137, 0.015)");
-  ctx.strokeStyle = gridGlow;
-  ctx.lineWidth = 0.72;
-  for (let i = -15; i <= 15; i += 1) {
-    const bottomX = vanishX + i * width * 0.08;
-    ctx.beginPath();
-    ctx.moveTo(vanishX, horizon);
-    ctx.lineTo(bottomX, height * 1.04);
-    ctx.stroke();
-  }
-  for (let row = 0; row < 17; row += 1) {
-    const progress = row / 16;
-    const y = horizon + Math.pow(progress, 1.62) * (height - horizon) * 1.04;
-    const halfWidth = mix(width * 0.06, width * 1.1, Math.pow(progress, 1.2));
-    ctx.beginPath();
-    ctx.ellipse(vanishX, y, halfWidth, Math.max(1.5, 1 + progress * 5), 0, Math.PI, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  for (let i = 0; i <= 12; i += 1) {
-    const x = (i / 12) * width;
-    const bottomX = x + (vanishX - x) * 0.18;
-    ctx.beginPath();
-    ctx.moveTo(x, horizon - 7);
-    ctx.lineTo(bottomX, height * 0.78);
-    ctx.lineWidth = i % 3 === 0 ? 1.25 : 0.7;
-    ctx.strokeStyle = i % 3 === 0 ? "rgba(199, 213, 204, 0.22)" : "rgba(137, 164, 161, 0.12)";
-    ctx.stroke();
-  }
-
-  for (let i = 0; i < glyphRows.length; i += 1) {
-    const item = glyphRows[i];
-    const y = item.y + Math.sin(time * 0.25 + i) * item.drift;
-    ctx.font = `${Math.max(6, Math.min(9, width / 120))}px "Space Mono", monospace`;
-    ctx.fillStyle = `rgba(186, 202, 194, ${item.alpha})`;
-    ctx.fillText(item.text, item.x, y);
-  }
-  ctx.restore();
-}
-
-function drawShards(time) {
-  ctx.save();
-  for (let index = 0; index < shards.length; index += 1) {
-    const shard = shards[index];
-    const drift = Math.sin(time * 0.16 + index * 1.7) * 9;
-    const angle = shard.angle + time * shard.spin * 60;
-    const points = [[-0.62, -0.42], [0.48, -0.58], [0.7, 0.34], [-0.17, 0.56]];
-    const transformed = points.map(([x, y]) => {
-      const px = x * shard.size;
-      const py = y * shard.size;
-      return [
-        shard.x + drift + px * Math.cos(angle) - py * Math.sin(angle),
-        shard.y + px * Math.sin(angle) + py * Math.cos(angle),
-      ];
-    });
-    ctx.beginPath();
-    transformed.forEach(([x, y], point) => (point === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
-    ctx.closePath();
-    const fill = ctx.createLinearGradient(transformed[0][0], transformed[0][1], transformed[2][0], transformed[2][1]);
-    fill.addColorStop(0, `hsla(${shard.hue}, 76%, 70%, ${shard.alpha * 0.18})`);
-    fill.addColorStop(1, "rgba(139, 168, 170, 0.015)");
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.lineWidth = 0.8;
-    ctx.strokeStyle = `hsla(${shard.hue}, 76%, 71%, ${shard.alpha})`;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(transformed[0][0], transformed[0][1]);
-    ctx.lineTo(transformed[2][0], transformed[2][1]);
-    ctx.strokeStyle = `rgba(221, 233, 225, ${shard.alpha * 0.65})`;
-    ctx.lineWidth = 0.55;
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
 function drawVignette() {
-  const shade = ctx.createRadialGradient(width * 0.5, height * 0.34, height * 0.05, width * 0.5, height * 0.45, height * 0.82);
+  const shade = ctx.createRadialGradient(width * 0.5, height * 0.34, height * 0.08, width * 0.5, height * 0.47, height * 0.8);
   shade.addColorStop(0, "rgba(0, 0, 0, 0)");
-  shade.addColorStop(0.68, "rgba(0, 0, 0, 0.08)");
-  shade.addColorStop(1, "rgba(0, 0, 0, 0.72)");
+  shade.addColorStop(0.72, "rgba(0, 0, 0, 0.12)");
+  shade.addColorStop(1, "rgba(0, 0, 0, 0.58)");
   ctx.fillStyle = shade;
   ctx.fillRect(0, 0, width, height);
 }
 
 function draw(timestamp) {
   animationFrame = 0;
-  const time = reducedMotion.matches ? 0 : timestamp * 0.001;
+  const time = timestamp * 0.001;
+  drawBackdrop(time);
   drawAtmosphere(time);
-  drawGround(time);
-  drawDome(time);
-  drawShards(time);
+  drawCodeField(time);
+  drawGlints(time);
   drawVignette();
 }
 
@@ -366,6 +242,10 @@ dialog.addEventListener("click", (event) => {
 });
 dialog.addEventListener("close", () => document.querySelector("#enter").focus());
 
+POSTER.addEventListener("load", () => {
+  prepareAtmosphere();
+  startAnimation();
+});
 window.addEventListener("resize", resize, { passive: true });
 window.addEventListener("pointermove", (event) => {
   pointer.x = clamp((event.clientX / width - 0.5) * 2, -1, 1);
